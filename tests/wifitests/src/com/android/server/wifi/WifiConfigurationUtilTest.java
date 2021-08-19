@@ -17,6 +17,7 @@
 package com.android.server.wifi;
 
 import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
 import android.content.pm.UserInfo;
 import android.net.IpConfiguration;
@@ -34,6 +35,7 @@ import androidx.test.filters.SmallTest;
 
 import org.junit.Test;
 
+import java.security.ProviderException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;

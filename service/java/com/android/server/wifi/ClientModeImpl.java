@@ -4054,8 +4054,7 @@ public class ClientModeImpl extends StateMachine {
                     break;
                 case CMD_REMOVE_PASSPOINT_CONFIG:
                     int removeResult = mPasspointManager.removeProvider(
-                            message.sendingUid, message.arg1 == 1, (String) message.obj)
-                            ? SUCCESS : FAILURE;
+                            message.sendingUid, (String) message.obj) ? SUCCESS : FAILURE;
                     replyToMessage(message, message.what, removeResult);
                     break;
                 case CMD_GET_PASSPOINT_CONFIGS:
@@ -5041,8 +5040,7 @@ public class ClientModeImpl extends StateMachine {
                     break;
                 case CMD_REMOVE_PASSPOINT_CONFIG:
                     String fqdn = (String) message.obj;
-                    if (mPasspointManager.removeProvider(
-                            message.sendingUid, message.arg1 == 1, fqdn)) {
+                    if (mPasspointManager.removeProvider(message.sendingUid, fqdn)) {
                         if (isProviderOwnedNetwork(mTargetNetworkId, fqdn)
                                 || isProviderOwnedNetwork(mLastNetworkId, fqdn)) {
                             logd("Disconnect from current network since its provider is removed");
@@ -5930,12 +5928,17 @@ public class ClientModeImpl extends StateMachine {
             final WifiConfiguration currentConfig = getCurrentWifiConfiguration();
             final boolean isUsingStaticIp =
                     (currentConfig.getIpAssignment() == IpConfiguration.IpAssignment.STATIC);
+            final boolean isUsingMacRandomization =
+                    currentConfig.macRandomizationSetting
+                            == WifiConfiguration.RANDOMIZATION_PERSISTENT
+                            && isConnectedMacRandomizationEnabled();
             if (mVerboseLoggingEnabled) {
                 final String key = currentConfig.configKey();
                 log("enter ObtainingIpState netId=" + Integer.toString(mLastNetworkId)
                         + " " + key + " "
                         + " roam=" + mIsAutoRoaming
-                        + " static=" + isUsingStaticIp);
+                        + " static=" + isUsingStaticIp
+                        + " randomMac=" + isUsingMacRandomization);
             }
 
             // Send event to CM & network change broadcast
@@ -5975,31 +5978,26 @@ public class ClientModeImpl extends StateMachine {
                     mIpClient.setTcpBufferSizes(mTcpBufferSizes);
                 }
             }
-            final ProvisioningConfiguration prov;
-
-            if (mIsFilsConnection && mIsIpClientStarted) {
-                setPowerSaveForFilsDhcp();
+            final ProvisioningConfiguration.Builder prov;
+            if (!isUsingStaticIp) {
+                prov = new ProvisioningConfiguration.Builder()
+                            .withPreDhcpAction()
+                            .withApfCapabilities(mWifiNative.getApfCapabilities(mInterfaceName))
+                            .withNetwork(getCurrentNetwork())
+                            .withDisplayName(currentConfig.SSID);
+                if (isUsingMacRandomization) {
+                    prov.withRandomMacAddress();
+                }
             } else {
-                if (!isUsingStaticIp) {
-                    prov = new ProvisioningConfiguration.Builder()
-                                .withPreDhcpAction()
-                                .withApfCapabilities(mWifiNative.getApfCapabilities(mInterfaceName))
-                                .withNetwork(getCurrentNetwork())
-                                .withDisplayName(currentConfig.SSID)
-                                .build();
-                } else {
-                    StaticIpConfiguration staticIpConfig = currentConfig.getStaticIpConfiguration();
-                    prov = new ProvisioningConfiguration.Builder()
-                                .withStaticConfiguration(staticIpConfig)
-                                .withApfCapabilities(mWifiNative.getApfCapabilities(mInterfaceName))
-                                .withNetwork(getCurrentNetwork())
-                                .withDisplayName(currentConfig.SSID)
-                                .build();
-                }
-                if (mIpClient != null) {
-                  mIpClient.startProvisioning(prov);
-                  mIsIpClientStarted = true;
-                }
+                StaticIpConfiguration staticIpConfig = currentConfig.getStaticIpConfiguration();
+                prov = new ProvisioningConfiguration.Builder()
+                            .withStaticConfiguration(staticIpConfig)
+                            .withApfCapabilities(mWifiNative.getApfCapabilities(mInterfaceName))
+                            .withNetwork(getCurrentNetwork())
+                            .withDisplayName(currentConfig.SSID);
+            }
+            if (mIpClient != null) {
+                mIpClient.startProvisioning(prov.build());
             }
             // Get Link layer stats so as we get fresh tx packet counters
             getWifiLinkLayerStats();
